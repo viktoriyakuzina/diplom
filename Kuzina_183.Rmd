@@ -1,0 +1,1678 @@
+---
+title: "Diplom"
+author: "Kuzina Viktoriya, Bec 183"
+output: html_document
+---
+
+# Load libraries 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# devtools::install_version("httr", version="0.6.0", repos="http://cran.us.r-project.org")
+webshot::install_phantomjs()
+library(tidyverse)
+library(sandwich)
+library(lme4)
+library(lmerTest)
+library(performance)
+library(nlme)
+library(QTLRel)
+library(lmtest)
+library(directlabels)
+library(lubridate)
+library(data.table)
+library(stargazer)
+library(tidyr)
+library(syuzhet)
+library(xtable)
+library(textdata)
+require(gridExtra)
+library(tseries)
+library(tidytext)
+library(rtweet)
+library(zoo)
+library(imputeTS)
+library(Hmisc)
+library(stopwords)
+library(wordcloud2)
+library(RColorBrewer)
+library(plyr)
+library(devtools)
+library(fpp2)
+library(tidyquant)
+library(rstatix)
+library(ggpubr)
+library(nortest)
+library(qdapRegex)
+library(readxl)
+library(wordcloud2)
+library(plm)
+library(car)
+library(twitteR)
+library(htmlwidgets)
+library(texreg)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load_current_gh("trinker/lexicon", "trinker/sentimentr")
+
+# set english language environment 
+Sys.setlocale("LC_ALL","English")
+
+options(scipen = 999)
+```
+
+# Tesla graph
+
+```{r}
+# for Tesla graph
+TSLA = read_delim("C:/Users/WW/Downloads/TSLA.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+colnames(TSLA) = c('Date', 'Price', 'Open', 'Max', 'Min', 'Volume', 'Daily_Return')
+TSLA$Date = dmy(TSLA$Date)
+
+TSLA %>% filter(day(Date) <= 15) %>% ggplot(aes(x = Date, y = Price)) + geom_line(size = 0.8) + geom_vline(aes(xintercept = as.numeric(TSLA$Date[20])), linetype = 'dashed')+  geom_text(aes(label = round(Price, 1)), vjust = 0, nudge_y = 0.28, nudge_x = 0.27) + geom_label(label="Elon Musk tweet", x = as.numeric(TSLA$Date[19]), y=68, label.padding = unit(0.55, "lines"), label.size = 0.35, color = "brown", fill="white") + labs(x = "August days, 2018", y = "Price, $") + 
+  theme_classic(base_size = 14) + 
+  scale_x_date(date_breaks = "1 day", 
+               date_labels =  "%d") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7)) 
+
+ggsave('C:/Users/WW/Desktop/univer/4 course/diplom/data/stock prices/timeseriesprices/TSLA_tsprice_graph.png', width = 13, height = 7)
+```
+
+# Twitter connection 
+
+```{r}
+# set Twitter Api
+consumer_key = "consumer_key"
+consumer_secret = "consumer_secret"
+access_token = "access_token"
+access_secret = "access_secret"
+
+# set a connection with Twitter developer account 
+setup_twitter_oauth(consumer_key, consumer_secret, access_token, access_secret)
+```
+
+# Company information 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+company_info = read_excel("C:/Users/WW/Desktop/univer/4 course/diplom/companies_final.xlsx", sheet = 'companies')
+company_info = company_info %>% select(Company, Stock, Industry, Group, CEO, Twitter)
+```
+
+# Stock prices data 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# load stock prices data
+AAPL = stocks_data('AAPL') 
+BOX = stocks_data('BOX')
+CRM = stocks_data('CRM')
+CSCO = stocks_data('CSCO')
+CVS = stocks_data('CVS')
+DELL = stocks_data('DELL')
+HPE = stocks_data('HPE')
+INTU = stocks_data('INTU')
+LSXMA = stocks_data('LSXMA')
+MA = stocks_data('MA')
+MAN = stocks_data('MAN')
+MSFT = stocks_data('MSFT')
+MUSA = stocks_data('MUSA')
+PEP = stocks_data('PEP')
+PFE = stocks_data('PFE')
+QCOM = stocks_data('QCOM')
+SCHW = stocks_data('SCHW')
+SQ = stocks_data('SQ')
+TWTR = stocks_data('TWTR')
+VZ = stocks_data('VZ')
+YELP = stocks_data('YELP')
+GM = stocks_data('GM')
+AMZN = stocks_data('AMZN')
+GOOGL = stocks_data('GOOGL')
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# preparing data for future work
+modifications = function(df_name, company_name){
+  colnames(df_name) = c('Date', 'Price', 'Volume', 'Daily_Return')
+  df_name$Company = company_name
+  df_name = df_name %>% filter(year(Date) < 2022 & year(Date) >= 2017)
+  df_name$Volume = ifelse(str_detect(df_name$Volume, 'M'), as.double(str_replace_all(df_name$Volume, 'M', ''))*1000000, ifelse(str_detect(df_name$Volume, 'K'), as.double(str_replace_all(df_name$Volume, 'K', ''))*1000, df_name$Volume))
+  df_name$Volume = as.numeric(df_name$Volume)
+  df_name$Price = as.numeric(df_name$Price)
+  df_name$Daily_Return = as.double(df_name$Daily_Return)
+  return(df_name)
+}
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+AAPL1 = modifications(AAPL, 'Apple') 
+BOX1 = modifications(BOX, 'Box')
+CRM1 = modifications(CRM, 'Salesforce')
+CSCO1 = modifications(CSCO, 'Cisco Systems')
+CVS1 = modifications(CVS, 'CVSHealth')
+DELL1 = modifications(DELL, 'Dell Technologies')
+HPE1 = modifications(HPE, 'Hewlett Packard Enterprise')
+INTU1 = modifications(INTU, 'Intuit')
+LSXMA1 = modifications(LSXMA, 'Liberty Media')
+MA1 = modifications(MA, 'Mastercard')
+MAN1 = modifications(MAN, 'Manpowergroup')
+MSFT1 = modifications(MSFT, 'Microsoft')
+MUSA1 = modifications(MUSA, 'Murphy USA')
+PEP1 = modifications(PEP, 'PepsiCo')
+PFE1 = modifications(PFE, 'Pfizer')
+QCOM1 = modifications(QCOM, 'Qualcomm')
+SCHW1 = modifications(SCHW, 'Charles Schwab')
+SQ1 = modifications(SQ, 'Block')
+TWTR1 = modifications(TWTR, 'Twitter')
+VZ1 = modifications(VZ, 'Verizon')
+YELP1 = modifications(YELP, 'Yelp')
+GM1 = modifications(GM, 'General Motors')
+AMZN1 = modifications(AMZN, 'Amazon')
+GOOGL1 = modifications(GOOGL, 'Alphabet')
+```
+
+## Descriptive statistic 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# making function for descriptive statistic
+stat = function(data, company_name){
+  stat = data %>% group_by(Year = year(Date)) %>% summarise(
+    Min = round(min(Price, na.rm = TRUE),2),
+    Max = round(max(Price, na.rm = TRUE),2), 
+    Mean = round(mean(Price,na.rm=TRUE),2), 
+    St.d = round(sd(Price, na.rm = TRUE),2))
+  write.csv(stat, paste("C:/Users/WW/Desktop/univer/4 course/diplom/data/stock prices/stat/", deparse(substitute(data)), '_stat', '.csv', sep=''))
+  return(stat)
+}
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+AAPL1_stat = stat(AAPL1) 
+BOX1_stat = stat(BOX1)
+CRM1_stat = stat(CRM1)
+CSCO1_stat = stat(CSCO1)
+CVS1_stat = stat(CVS1)
+DELL1_stat = stat(DELL1)
+HPE1_stat = stat(HPE1)
+INTU1_stat = stat(INTU1)
+LSXMA1_stat = stat(LSXMA1)
+MA1_stat = stat(MA1)
+MAN1_stat = stat(MAN1)
+MSFT1_stat = stat(MSFT1)
+MUSA1_stat = stat(MUSA1)
+PEP1_stat = stat(PEP1)
+PFE1_stat = stat(PFE1)
+QCOM1_stat = stat(QCOM1)
+SCHW1_stat = stat(SCHW1)
+SQ1_stat = stat(SQ1)
+TWTR1_stat = stat(TWTR1)
+VZ1_stat = stat(VZ1)
+YELP1_stat = stat(YELP1)
+GM1_stat = stat(GM1)
+AMZN1_stat = stat(AMZN1)
+GOOGL1_stat = stat(GOOGL1)
+```
+
+## Graphs of Stock price 
+
+```{r}
+# making function for time series graph
+price_ts_graph = function(data){
+price_graph = data %>% ggplot(mapping = aes(x = Date, y = Price)) + geom_line() + 
+     labs(title = data$Company,
+       x = "",
+       y = "Price, $") + 
+  theme_classic(base_size = 14) + 
+  scale_x_date(date_breaks = "4 months", 
+               date_labels =  "%b %Y") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))
+ggsave(paste('C:/Users/WW/Desktop/univer/4 course/diplom/data/stock prices/timeseriesprices/', deparse(substitute(data)), "_tsprice_graph.png", sep = ''), width = 15, height = 7)
+  return(price_graph)
+}
+```
+
+
+```{r}
+AAPL1_tsgraph = price_ts_graph(AAPL1) 
+BOX1_tsgraph = price_ts_graph(BOX1)
+CRM1_tsgraph = price_ts_graph(CRM1)
+CSCO1_tsgraph = price_ts_graph(CSCO1)
+CVS1_tsgraph = price_ts_graph(CVS1)
+DELL1_tsgraph = price_ts_graph(DELL1)
+HPE1_tsgraph = price_ts_graph(HPE1)
+INTU1_tsgraph = price_ts_graph(INTU1)
+LSXMA1_tsgraph = price_ts_graph(LSXMA1)
+MA1_tsgraph = price_ts_graph(MA1)
+MAN1_tsgraph = price_ts_graph(MAN1)
+MSFT1_tsgraph = price_ts_graph(MSFT1)
+MUSA1_tsgraph = price_ts_graph(MUSA1)
+PEP1_tsgraph = price_ts_graph(PEP1)
+PFE1_tsgraph = price_ts_graph(PFE1)
+QCOM1_tsgraph = price_ts_graph(QCOM1)
+SCHW1_tsgraph = price_ts_graph(SCHW1)
+SQ1_tsgraph = price_ts_graph(SQ1)
+TWTR1_tsgraph = price_ts_graph(TWTR1)
+VZ1_tsgraph = price_ts_graph(VZ1)
+YELP1_tsgraph = price_ts_graph(YELP1)
+GM1_tsgraph = price_ts_graph(GM1)
+AMZN1_tsgraph = price_ts_graph(AMZN1)
+GOOGL1_tsgraph = price_ts_graph(GOOGL1)
+```
+
+# Tweets 
+
+```{r}
+# making function for tweet downloading 
+get_tweets = function(login, company_name){
+  tweets = get_timelines(login, n = 10000, retryonratelimit = TRUE)
+  tweets = tweets %>% filter(year(created_at) >= 2017 & year(created_at) <= 2021) %>% select(user_id, name, created_at, text, is_quote, is_retweet, favourites_count, retweet_count, quoted_description, retweet_text, retweet_description) %>% mutate(Company = company_name, Date = as.Date(created_at))
+  write.csv(tweets, paste("C:/Users/WW/Desktop/univer/4 course/diplom/data/tweets/ceos/", str_replace(login, '@', ''), '_tweets', '.csv', sep=''))
+  return(tweets)
+    }
+```
+
+```{r eval=FALSE, include=FALSE}
+# load CEOs' tweets
+mtbarra_tweets = get_tweets("@mtbarra", "General Motors")
+tim_cook_tweets = get_tweets("@tim_cook", "Apple")
+sundarpichai_tweets = get_tweets("@sundarpichai", "Alphabet")
+satyanadella_tweets = get_tweets("@satyanadella", "Microsoft")
+hansvestberg_tweets = get_tweets("@hansvestberg", "Verizon")
+KarenSLynch_tweets = get_tweets("@KarenSLynch", "CVSHealth")
+maffei_fake_tweets = get_tweets("@maffei_fake", "Liberty Media")
+ramonlaguarta_tweets = get_tweets("@ramonlaguarta", "PepsiCo")
+ChuckRobbins_tweets = get_tweets("@ChuckRobbins", "Cisco Systems")
+AlbertBourla_tweets = get_tweets("@AlbertBourla", "Pfizer")
+sasan_goodarzi_tweets = get_tweets("@sasan_goodarzi", "Intuit")
+cristianoamon_tweets = get_tweets("@cristianoamon", "Qualcomm")
+Benioff_tweets = get_tweets("@Benioff", "Salesforce")
+jack_tweets = get_tweets("@jack", "Block")
+levie_tweets = get_tweets("@levie", "Box")
+MichaelDell_tweets = get_tweets("@MichaelDell", "Dell Technologies")
+paraga_tweets = get_tweets("@paraga", "Twitter")
+JonasPrising_tweets = get_tweets("@JonasPrising", "Manpowergroup")
+jeremys_tweets = get_tweets("@jeremys", "Yelp")
+MiebachMichael_tweets = get_tweets("@MiebachMichael", "Mastercard")
+AntonioNeri_HPE_tweets = get_tweets("@AntonioNeri_HPE", "Hewlett Packard Enterprise")
+WaltBettinger_tweets = get_tweets("@WaltBettinger", "Charles Schwab")
+ajassy_tweets = get_tweets("@ajassy", "Amazon")
+Rep_Clyde_tweets = get_tweets("@Rep_Clyde", "Murphy USA")
+```
+
+# Clean tweets
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# making function for tweets cleaning
+clean_text = function(data) {
+  df = data %>% filter(!is.na(text))
+  # removing unnecessary punctuation 
+  df$text = str_replace_all(df$text, "\\&quot\\;", " ")
+  df$text = str_replace_all(df$text, "\\&apos\\;", " ")
+  df$text = str_replace_all(df$text, "[[:punct:]]", "")
+  # lower case conversion
+  df$text = str_to_lower(df$text)
+  # removing non-meaningful letters inside brackets "< >"
+  df$text = str_replace_all(df$text, '<.*>', '')
+  # renoving digits
+  df$text = str_replace_all(df$text, "[[:digit:]]", "")
+  # removing non-meaningful words from one-two letters
+  df$text = gsub(" *\\b(?<!-)\\p{L}{1,2}(?!-)\\b *", " ", df$text, perl=T)
+  # getting rid of hashtags
+  df$text = str_replace_all(df$text,"#[a-z,A-Z]*","")
+  # getting rid of references to other screennames
+  df$text = str_replace_all(df$text,"@[a-z,A-Z]*","")  
+  df$text = rm_url(df$text, pattern=pastex("@rm_twitter_url", "@rm_url"))
+  df$text = str_replace_all(df$text, "\\\n", " ")
+  # replacing apostrophes with %%
+  df$text = gsub("'", "%%", df$text) 
+  # removing emojis/dodgy unicode
+  df$text = iconv(df$text, "latin1", "ASCII", sub="") 
+  # removing pesky Unicodes like <U+A>
+  df$text = gsub("<(.*)>", "",df$text) 
+  # replacing orphaned fullstops with space
+  df$text = gsub("\\ \\. ", " ", df$text) 
+  df$text = gsub(" +"," ",df$text) # Remove extra whitespaces
+  df$text = gsub("https(.*)*$", "", df$text) # remove tweet URL
+  df$text = gsub("\\n", "-", df$text) # replace line breaks with -
+  df$text = gsub("--", "-", df$text) # remove double - from double line breaks
+  # сохранение датасета
+  write.csv(df, paste("C:/Users/WW/Desktop/univer/4 course/diplom/data/tweets/cleaned/", deparse(substitute(data)), '_cleaned.csv', sep =''))
+  return(df)
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+mtbarra_tws_clean = clean_text(mtbarra_tweets)
+tim_cook_tws_clean = clean_text(tim_cook_tweets)
+sundarpichai_tws_clean = clean_text(sundarpichai_tweets)
+satyanadella_tws_clean = clean_text(satyanadella_tweets)
+hansvestberg_tws_clean = clean_text(hansvestberg_tweets)
+KarenSLynch_tws_clean = clean_text(KarenSLynch_tweets)
+maffei_fake_tws_clean = clean_text(maffei_fake_tweets)
+ramonlaguarta_tws_clean = clean_text(ramonlaguarta_tweets) 
+ChuckRobbins_tws_clean = clean_text(ChuckRobbins_tweets)
+AlbertBourla_tws_clean = clean_text(AlbertBourla_tweets) 
+sasan_goodarzi_tws_clean = clean_text(sasan_goodarzi_tweets)
+cristianoamon_tws_clean = clean_text(cristianoamon_tweets)
+Benioff_tws_clean = clean_text(Benioff_tweets) 
+jack_tws_clean = clean_text(jack_tweets) 
+levie_tws_clean = clean_text(levie_tweets)
+MichaelDell_tws_clean = clean_text(MichaelDell_tweets)
+paraga_tws_clean = clean_text(paraga_tweets)
+JonasPrising_tws_clean = clean_text(JonasPrising_tweets)
+jeremys_tws_clean = clean_text(jeremys_tweets)
+MiebachMichael_tws_clean = clean_text(MiebachMichael_tweets)
+AntonioNeri_HPE_tws_clean = clean_text(AntonioNeri_HPE_tweets)
+WaltBettinger_tws_clean = clean_text(WaltBettinger_tweets)
+ajassy_tws_clean = clean_text(ajassy_tweets)
+Rep_Clyde_tws_clean = clean_text(Rep_Clyde_tweets)
+```
+
+# Tokenization
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+tws_tokens = function(df, enstopwords = data.frame(words=stopwords("en"), stringsAsFactors=FALSE)){
+  df.tidy = df %>% unnest_tokens(words, text)
+  df.nonstop = filter(df.tidy, !(words %in% c(enstopwords$words, 'us', "we’re", "i’m", 'it’s', 'can', 'one', 'just', 'year', str_to_lower(c("General Motors","Apple","Alphabet","Microsoft","Verizon","CVSHealth","Liberty Media","PepsiCo","Cisco Systems","Pfizer","Intuit","Qualcomm","Salesforce","Block","Box","Dell Technologies","Twitter","Manpowergroup","Yelp","Mastercard","Hewlett Packard Enterprise","Charles Schwab","Amazon","Murphy USA", 'GM', 'AWS', 'across', 'Cisco', 'Dell', 'Liberty', 'Health', 'Schwab', 'Delltech', 'HPE', 'Google', 'usfda', 'many', 'benioff', 'chuckrobbins', 'mmwave', 'gishere', 'gnr', 'hansvestberg', 'san', 'jonasprising', 'also', 'coyc', 'sbonasquadrito', 'via', 'don', 'skelecap', 'gregmaffei', 'miebachmichael', 'und', 'pep', 'sasangoodarzi', 'schwab', "charlesschwab")))))
+  # saving dataset
+  write.csv(df.nonstop, paste("C:/Users/WW/Desktop/univer/4 course/diplom/data/tweets/cleaned/tokens/", str_replace_all(deparse(substitute(df)), '_clean', ''), '_nonstop.csv', sep =''))
+  return(df.nonstop)
+}
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+mtbarra_tws_nonstop = tws_tokens(mtbarra_tws_clean)
+tim_cook_tws_nonstop = tws_tokens(tim_cook_tws_clean)
+sundarpichai_tws_nonstop = tws_tokens(sundarpichai_tws_clean)
+satyanadella_tws_nonstop = tws_tokens(satyanadella_tws_clean)
+hansvestberg_tws_nonstop = tws_tokens(hansvestberg_tws_clean)
+KarenSLynch_tws_nonstop = tws_tokens(KarenSLynch_tws_clean)
+maffei_fake_tws_nonstop = tws_tokens(maffei_fake_tws_clean)
+ramonlaguarta_tws_nonstop = tws_tokens(ramonlaguarta_tws_clean) 
+ChuckRobbins_tws_nonstop = tws_tokens(ChuckRobbins_tws_clean)
+AlbertBourla_tws_nonstop = tws_tokens(AlbertBourla_tws_clean) 
+sasan_goodarzi_tws_nonstop = tws_tokens(sasan_goodarzi_tws_clean)
+cristianoamon_tws_nonstop = tws_tokens(cristianoamon_tws_clean)
+Benioff_tws_nonstop = tws_tokens(Benioff_tws_clean) 
+jack_tws_nonstop = tws_tokens(jack_tws_clean) 
+levie_tws_nonstop = tws_tokens(levie_tws_clean)
+MichaelDell_tws_nonstop = tws_tokens(MichaelDell_tws_clean)
+paraga_tws_nonstop = tws_tokens(paraga_tws_clean)
+JonasPrising_tws_nonstop = tws_tokens(JonasPrising_tws_clean)
+jeremys_tws_nonstop = tws_tokens(jeremys_tws_clean)
+MiebachMichael_tws_nonstop = tws_tokens(MiebachMichael_tws_clean)
+AntonioNeri_HPE_tws_nonstop = tws_tokens(AntonioNeri_HPE_tws_clean)
+WaltBettinger_tws_nonstop = tws_tokens(WaltBettinger_tws_clean)
+ajassy_tws_nonstop = tws_tokens(ajassy_tws_clean)
+Rep_Clyde_tws_nonstop = tws_tokens(Rep_Clyde_tws_clean)
+```
+
+# WordClouds
+
+```{r message=FALSE, warning=FALSE}
+ceo_clouds = function(data, 
+                      pathtohtml = paste("C:/Users/WW/Desktop/univer/4 course/diplom/data/clouds/", str_replace_all(deparse(substitute(data)), 'tws_nonstop', 'cloud'), '.html', sep =''), 
+                      pathtopng = paste("C:/Users/WW/Desktop/univer/4 course/diplom/data/clouds/", str_replace_all(deparse(substitute(data)), 'tws_nonstop', 'cloud'), '.png', sep ='')){
+  df.nonstop.counts = data %>%
+    dplyr::count(words, sort=TRUE) %>% 
+    top_n(50, n)
+  
+  df.cloud = wordcloud2(df.nonstop.counts,  color=rep_len(c("steelblue","cadetblue","darkslategrey", 'seagreen'),nrow(df.nonstop.counts)))
+  
+  saveWidget(df.cloud,pathtohtml,selfcontained = F)
+  webshot::webshot(pathtohtml,pathtopng, delay =10)
+}
+```
+
+```{r}
+mtbarra_cloud = ceo_clouds(mtbarra_tws_nonstop)
+tim_cook_cloud = ceo_clouds(tim_cook_tws_nonstop)
+sundarpichai_cloud = ceo_clouds(sundarpichai_tws_nonstop)
+satyanadella_cloud = ceo_clouds(satyanadella_tws_nonstop)
+hansvestberg_cloud = ceo_clouds(hansvestberg_tws_nonstop)
+KarenSLynch_cloud = ceo_clouds(KarenSLynch_tws_nonstop)
+maffei_fake_cloud = ceo_clouds(maffei_fake_tws_nonstop)
+ramonlaguarta_cloud = ceo_clouds(ramonlaguarta_tws_nonstop) 
+ChuckRobbins_cloud = ceo_clouds(ChuckRobbins_tws_nonstop)
+AlbertBourla_cloud = ceo_clouds(AlbertBourla_tws_nonstop) 
+sasan_goodarzi_cloud = ceo_clouds(sasan_goodarzi_tws_nonstop)
+cristianoamon_cloud = ceo_clouds(cristianoamon_tws_nonstop)
+Benioff_cloud = ceo_clouds(Benioff_tws_nonstop) 
+jack_cloud = ceo_clouds(jack_tws_nonstop) 
+levie_cloud = ceo_clouds(levie_tws_nonstop)
+MichaelDell_cloud = ceo_clouds(MichaelDell_tws_nonstop)
+paraga_cloud = ceo_clouds(paraga_tws_nonstop)
+JonasPrising_cloud = ceo_clouds(JonasPrising_tws_nonstop)
+jeremys_cloud = ceo_clouds(jeremys_tws_nonstop)
+MiebachMichael_cloud = ceo_clouds(MiebachMichael_tws_nonstop)
+AntonioNeri_HPE_cloud = ceo_clouds(AntonioNeri_HPE_tws_nonstop)
+WaltBettinger_cloud = ceo_clouds(WaltBettinger_tws_nonstop)
+ajassy_cloud = ceo_clouds(ajassy_tws_nonstop)
+Rep_Clyde_cloud = ceo_clouds(Rep_Clyde_tws_nonstop)
+```
+
+# Tonality
+
+### Full sentences 
+
+```{r}
+get_sents = function(data){
+  sentiments_articles = sentiment(get_sentences(data$text))
+  data$sentiment = sentiments_articles$sentiment
+  data = data %>% filter(sentiment <= 1 & sentiment > -1)
+  data$Date = ymd(as.Date(data$created_at))
+  write.csv(data, paste0("C:/Users/WW/Desktop/univer/4 course/diplom/data/tweets/sentiments/", str_replace_all(as.character(substitute(data)),'_tws_clean',''),'_sent.csv', sep =''))
+  return(data)
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+mtbarra_sent = get_sents(mtbarra_tws_clean)
+tim_cook_sent = get_sents(tim_cook_tws_clean)
+sundarpichai_sent = get_sents(sundarpichai_tws_clean)
+satyanadella_sent = get_sents(satyanadella_tws_clean)
+hansvestberg_sent = get_sents(hansvestberg_tws_clean)
+KarenSLynch_sent = get_sents(KarenSLynch_tws_clean)
+maffei_fake_sent = get_sents(maffei_fake_tws_clean)
+ramonlaguarta_sent = get_sents(ramonlaguarta_tws_clean) 
+ChuckRobbins_sent = get_sents(ChuckRobbins_tws_clean)
+AlbertBourla_sent = get_sents(AlbertBourla_tws_clean) 
+sasan_goodarzi_sent = get_sents(sasan_goodarzi_tws_clean)
+cristianoamon_sent = get_sents(cristianoamon_tws_clean)
+Benioff_sent = get_sents(Benioff_tws_clean) 
+jack_sent = get_sents(jack_tws_clean) 
+levie_sent = get_sents(levie_tws_clean)
+MichaelDell_sent = get_sents(MichaelDell_tws_clean)
+paraga_sent = get_sents(paraga_tws_clean)
+JonasPrising_sent = get_sents(JonasPrising_tws_clean)
+jeremys_sent = get_sents(jeremys_tws_clean)
+MiebachMichael_sent = get_sents(MiebachMichael_tws_clean)
+AntonioNeri_HPE_sent = get_sents(AntonioNeri_HPE_tws_clean)
+WaltBettinger_sent = get_sents(WaltBettinger_tws_clean)
+ajassy_sent = get_sents(ajassy_tws_clean)
+Rep_Clyde_sent = get_sents(Rep_Clyde_tws_clean)
+```
+
+### Tokenization 
+
+```{r}
+tokens_sent = function(data){
+  data_tws_senttok = data_tws_nonstop %>% inner_join(get_sentiments("bing")) %>% 
+  dplyr::count(name, index = created_at, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative, sentiment2 = ifelse(sentiment > 0, 'Positive', ifelse(sentiment < 0, 'Negative', 'Neutral')))
+  return(data_tws_senttok)
+}
+```
+
+```{r}
+mtbarra_toksent = tokens_sent(mtbarra_tws_nonstop)
+tim_cook_toksent = tokens_sent(tim_cook_tws_nonstop)
+sundarpichai_toksent = tokens_sent(sundarpichai_tws_nonstop)
+satyanadella_toksent = tokens_sent(satyanadella_tws_nonstop)
+hansvestberg_toksent = tokens_sent(hansvestberg_tws_nonstop)
+KarenSLynch_toksent = tokens_sent(KarenSLynch_tws_nonstop)
+maffei_fake_toksent = tokens_sent(maffei_fake_tws_nonstop)
+ramonlaguarta_toksent = tokens_sent(ramonlaguarta_tws_nonstop) 
+ChuckRobbins_toksent = tokens_sent(ChuckRobbins_tws_nonstop)
+AlbertBourla_toksent = tokens_sent(AlbertBourla_tws_nonstop) 
+sasan_goodarzi_toksent = tokens_sent(sasan_goodarzi_tws_nonstop)
+cristianoamon_toksent = tokens_sent(cristianoamon_tws_nonstop)
+Benioff_toksent = tokens_sent(Benioff_tws_nonstop) 
+jack_toksent = tokens_sent(jack_tws_nonstop) 
+levie_toksent = tokens_sent(levie_tws_nonstop)
+MichaelDell_toksent = tokens_sent(MichaelDell_tws_nonstop)
+paraga_toksent = tokens_sent(paraga_tws_nonstop)
+JonasPrising_toksent = tokens_sent(JonasPrising_tws_nonstop)
+jeremys_toksent = tokens_sent(jeremys_tws_nonstop)
+MiebachMichael_toksent = tokens_sent(MiebachMichael_tws_nonstop)
+AntonioNeri_HPE_toksent = tokens_sent(AntonioNeri_HPE_tws_nonstop)
+WaltBettinger_toksent = tokens_sent(WaltBettinger_tws_nonstop)
+ajassy_toksent = tokens_sent(ajassy_tws_nonstop)
+Rep_Clyde_toksent = tokens_sent(Rep_Clyde_tws_nonstop)
+```
+
+```{r}
+data_toksent = do.call("rbind", list(mtbarra_toksent, tim_cook_toksent, sundarpichai_toksent, satyanadella_toksent, hansvestberg_toksent, KarenSLynch_toksent, maffei_fake_toksent, ramonlaguarta_toksent, ChuckRobbins_toksent, AlbertBourla_toksent, sasan_goodarzi_toksent, cristianoamon_toksent, Benioff_toksent, jack_toksent, levie_toksent, MichaelDell_toksent, paraga_toksent, JonasPrising_toksent, jeremys_toksent, MiebachMichael_toksent, AntonioNeri_HPE_toksent, WaltBettinger_toksent, ajassy_toksent, Rep_toksent_toksent))
+
+data_toksent %>% group_by(sentiment2) %>% dplyr::summarise(count = n())  
+```
+
+
+### Combining tonality and stock prices datasets
+
+```{r}
+combining_tws_price = function(data_sent, stock){
+    data_sent = data_sent %>% select(-profile_url, -statuses_count, -friends_count, -followers_count)
+    data_sent = data_sent %>% fill(Company, .direction = 'down') %>% fill(name, .direction = 'down')
+  df = stock %>% left_join(data_sent, by = c("Company", "Date")) %>% filter(!is.na(Price))
+  df$sentiment = ifelse(is.na(df$text) | !is.na(df$Price), 0, df$sentiment)
+  return(df)
+}
+```
+
+
+```{r include=FALSE}
+mtbarra_GM = combining_tws_price(mtbarra_sent, GM1)
+tim_cook_AAPL = combining_tws_price(tim_cook_sent, AAPL1)
+sundarpichai_GOOGL = combining_tws_price(sundarpichai_sent, GOOGL1)
+satyanadella_MSFT = combining_tws_price(satyanadella_sent, MSFT1)
+hansvestberg_VZ = combining_tws_price(hansvestberg_sent, VZ1)
+KarenSLynch_CVS = combining_tws_price(KarenSLynch_sent, CVS1)
+maffei_fake_LSXMA = combining_tws_price(maffei_fake_sent, LSXMA1)
+ramonlaguarta_PEP = combining_tws_price(ramonlaguarta_sent, PEP1) 
+ChuckRobbins_CSCO = combining_tws_price(ChuckRobbins_sent, CSCO1)
+AlbertBourla_PFE = combining_tws_price(AlbertBourla_sent, PFE1) 
+sasan_goodarzi_INTU = combining_tws_price(sasan_goodarzi_sent, INTU1)
+cristianoamon_QCOM = combining_tws_price(cristianoamon_sent, QCOM1)
+Benioff_CRM = combining_tws_price(Benioff_sent, CRM1) 
+jack_SQ = combining_tws_price(jack_sent, SQ1) 
+levie_BOX = combining_tws_price(levie_sent, BOX1)
+MichaelDell_DELL = combining_tws_price(MichaelDell_sent, DELL1)
+paraga_TWTR = combining_tws_price(paraga_sent, TWTR1)
+JonasPrising_MAN = combining_tws_price(JonasPrising_sent, MAN1)
+jeremys_YELP	 = combining_tws_price(jeremys_sent, YELP1)
+MiebachMichael_MA = combining_tws_price(MiebachMichael_sent, MA1)
+AntonioNeri_HPE_HPE = combining_tws_price(AntonioNeri_HPE_sent, HPE1)
+WaltBettinger_SCHW = combining_tws_price(WaltBettinger_sent, SCHW1)
+ajassy_AMZN = combining_tws_price(ajassy_sent, AMZN1)
+Rep_Clyde_MUSA = combining_tws_price(Rep_Clyde_sent, MUSA1)
+```
+
+Removing unnecessary data
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+remove(AAPL)
+remove(BOX)
+remove(CRM)
+remove(CSCO)
+remove(CVS)
+remove(DELL)
+remove(HPE)
+remove(INTU)
+remove(LSXMA)
+remove(MA)
+remove(MAN)
+remove(MSFT)
+remove(MUSA)
+remove(PEP)
+remove(PFE)
+remove(QCOM)
+remove(SCHW)
+remove(SQ)
+remove(TWTR)
+remove(UBER)
+remove(VZ)
+remove(YELP)
+remove(GM)
+remove(AMZN)
+remove(GOOGL)
+
+remove(AAPL1_stat)
+remove(BOX1_stat)
+remove(CRM1_stat)
+remove(CSCO1_stat)
+remove(CVS1_stat)
+remove(DELL1_stat)
+remove(HPE1_stat)
+remove(INTU1_stat)
+remove(LSXMA1_stat)
+remove(MA1_stat)
+remove(MAN1_stat)
+remove(MSFT1_stat)
+remove(MUSA1_stat)
+remove(PEP1_stat)
+remove(PFE1_stat)
+remove(QCOM1_stat)
+remove(SCHW1_stat)
+remove(SQ1_stat)
+remove(TWTR1_stat)
+remove(VZ1_stat)
+remove(YELP1_stat)
+remove(GM1_stat)
+remove(AMZN1_stat)
+remove(GOOGL1_stat)
+
+remove(AAPL1_tsgraph)
+remove(BOX1_tsgraph)
+remove(CRM1_tsgraph)
+remove(CSCO1_tsgraph)
+remove(CVS1_tsgraph)
+remove(DELL1_tsgraph)
+remove(HPE1_tsgraph)
+remove(INTU1_tsgraph)
+remove(LSXMA1_tsgraph)
+remove(MA1_tsgraph)
+remove(MAN1_tsgraph)
+remove(MSFT1_tsgraph)
+remove(MUSA1_tsgraph)
+remove(PEP1_tsgraph)
+remove(PFE1_tsgraph)
+remove(QCOM1_tsgraph)
+remove(SCHW1_tsgraph)
+remove(SQ1_tsgraph)
+remove(TWTR1_tsgraph)
+remove(VZ1_tsgraph)
+remove(YELP1_tsgraph)
+remove(GM1_tsgraph)
+remove(AMZN1_tsgraph)
+remove(GOOGL1_tsgraph)
+
+remove(mtbarra_tweets)
+remove(tim_cook_tweets)
+remove(sundarpichai_tweets)
+remove(satyanadella_tweets)
+remove(hansvestberg_tweets)
+remove(KarenSLynch_tweets)
+remove(maffei_fake_tweets)
+remove(ramonlaguarta_tweets) 
+remove(ChuckRobbins_tweets)
+remove(AlbertBourla_tweets) 
+remove(sasan_goodarzi_tweets)
+remove(cristianoamon_tweets)
+remove(Benioff_tweets) 
+remove(jack_tweets) 
+remove(levie_tweets)
+remove(MichaelDell_tweets)
+remove(paraga_tweets)
+remove(JonasPrising_tweets)
+remove(jeremys_tweets)
+remove(MiebachMichael_tweets)
+remove(AntonioNeri_HPE_tweets)
+remove(WaltBettinger_tweets)
+remove(ajassy_tweets)
+remove(Rep_Clyde_tweets)
+```
+
+#### Merging all datasets
+
+```{r}
+data_merged_sent = do.call("rbind", list(mtbarra_GM, tim_cook_AAPL, sundarpichai_GOOGL, satyanadella_MSFT, hansvestberg_VZ, KarenSLynch_CVS, maffei_fake_LSXMA, ramonlaguarta_PEP, ChuckRobbins_CSCO, AlbertBourla_PFE, sasan_goodarzi_INTU, cristianoamon_QCOM, Benioff_CRM, jack_SQ, levie_BOX, MichaelDell_DELL, paraga_TWTR, JonasPrising_MAN, jeremys_YELP, MiebachMichael_MA, AntonioNeri_HPE_HPE, WaltBettinger_SCHW, ajassy_AMZN, Rep_Clyde_MUSA))
+```
+
+### Adding variables to dataset 
+
+```{r}
+# polarity
+data_merged_sent = data_merged_sent %>% mutate(Polarity = as.factor(ifelse(data_merged_sent$sentiment > 0, 'Positive', ifelse(data_merged_sent$sentiment < 0, 'Negative', 'Neutral'))))
+data_merged_sent %>% group_by(Polarity) %>% dplyr::summarise(count = n())
+
+# calculate market cap with the help of excel
+outstanding = read_excel("univer/4 course/diplom/companies_final.xlsx", sheet = "outstanding")
+outstanding$Date = as.Date(outstanding$Date, "%m.%d.%Y")
+
+stock_price = read_excel("univer/4 course/diplom/companies_final.xlsx", sheet = "stocks_price")
+stock_price$Date = as.Date(stock_price$Date, "%d.%m.%Y")
+stock_price$Year = year(stock_price$Date)
+stock_price$quarter = as.factor(ifelse(month(stock_price$Date) %in% c("1", "2", "3"), 'Q1', ifelse(month(stock_price$Date) %in% c("4", "5", "6"), 'Q2', ifelse(month(stock_price$Date) %in% c("7", "8", "9"), 'Q3', 'Q4'))))
+mark = stock_price %>% left_join(outstanding, by = c('quarter' = 'Quartal', 'Year'))
+
+mark = mark %>% mutate(AAPL_mc = AAPL.x*AAPL.y, BOX_mc = BOX.x*BOX.y, CRM_mc = CRM.x*CRM.y, CSCO_mc = CSCO.x*CSCO.y, AMZN_mc = AMZN.x*AMZN.y, CVS_mc = CVS.x*CVS.y, DELL_mc = DELL.x*DELL.y, GM_mc = GM.x*GM.y, GOOGL_mc = GOOGL.x*GOOGL.y, HPE_mc = HPE.x*HPE.y, INTU_mc = INTU.x*INTU.y, LSXMA_mc = LSXMA.x*LSXMA.y, MA_mc = MA.x*MA.y, MAN_mc = MAN.x*MAN.y, MSFT_mc = MSFT.x*MSFT.y, MUSA_mc = MUSA.x*MUSA.y, PEP_mc = PEP.x*PEP.y, PFE_mc = PFE.x*PFE.y, QCOM_mc = QCOM.x*QCOM.y, SCHW_mc = SCHW.x*SCHW.y, SQ_mc = SQ.x*SQ.y, TWTR_mc = TWTR.x*TWTR.y, VZ_mc = VZ.x*VZ.y, YELP_mc = YELP.x*YELP.y)
+write.csv(mark, 'C:/Users/WW/Desktop/univer/4 course/diplom/data/mark.csv')
+
+market_cap = read_excel("univer/4 course/diplom/companies_final.xlsx", sheet = "market_cap")
+market_cap_long = melt(setDT(market_cap), id.vars = c("Date"), variable.name = "Stock", value.name = "Market_cap")
+data_merged_sent = data_merged_sent %>% left_join(market_cap_long, by = c('Stock', 'Date'))
+
+# 90 day treasury yields *riskk-free rate)
+tbill = read_excel("univer/4 course/diplom/companies_final.xlsx", 
+    sheet = "90t")
+colnames(tbill) = c('Date', 'Tbill90')
+data_merged_sent = Filter(function(x)!all(is.na(x)), data_merged_sent)
+data_merged_sent = data_merged_sent %>% left_join(tbill, by = 'Date') 
+
+# dividends 
+dividends = stock_price %>% select(Date, AAPL_div, BOX_div, CRM_div, CSCO_div, AMZN_div, CVS_div, DELL_div, GM_div, GOOGL_div, HPE_div, INTU_div, LSXMA_div, MA_div, MAN_div, MSFT_div, MUSA_div, PEP_div, PFE_div, QCOM_div, SCHW_div, SQ_div, TWTR_div, VZ_div, YELP_div)
+colnames(dividends) = c('Date', 'AAPL', 'BOX', 'CRM', 'CSCO', 'AMZN', 'CVS', 'DELL', 'GM', 'GOOGL', 'HPE', 'INTU', 'LSXMA', 'MA', 'MAN', 'MSFT', 'MUSA', 'PEP', 'PFE', 'QCOM', 'SCHW', 'SQ', 'TWTR', 'VZ', 'YELP')
+
+divs_long = melt(setDT(dividends), id.vars = c("Date"), variable.name = "Stock", value.name = "Dividends")
+divs_long$Dividends = as.numeric(divs_long$Dividends)
+data_merged_sent = data_merged_sent %>% left_join(divs_long, by = c('Stock', 'Date'))
+
+# market indicators 
+capm = stock_price %>% select(Date, `S&P`, `S&P_ret`,RF, Mkt_RF, SMB, HML, RMW, CMA)
+colnames(capm) = c('Date', 'S_P', "S_P_ret", 'RF', 'Mkt_RF', 'Mkt_RF', 'HML', 'RMW', 'CMA')
+data_merged_sent = data_merged_sent %>% left_join(capm, by = c('Date'))
+```
+
+# Emotions
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+get_emotions = function(data){
+  emotions_articles = emotion(get_sentences(data$text))
+  emotions_articles = emotions_articles %>% filter(emotion_count != 0)
+  write.csv(emotions_articles, 'C:/Users/WW/Desktop/univer/4 course/diplom/data/tweets/emotions/data_with_emotions.csv')
+  return(emotions_articles)
+}
+
+data_emotion2 = get_emotions(data_merged_sent)
+data_emotion2$emotion_type = ifelse(str_detect(as.character(data_emotion2$emotion_type), 'negated'), NA, as.character(data_emotion2$emotion_type))
+data_merged_sent$element_id = data_merged_sent:nrow(data_merged_sent)
+data_with_emotions = data_merged2 %>% left_join(data_emotion2) %>% select(-sentence_id, word_count)
+```
+
+## Graph of emotions shares by years overall beside months
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color palette 
+values_cols_neg = c("anger" = "#ea3546", "anticipation" = "#f78154", "disgust" = "#8c271e", "fear" = '#04395e', "joy" = '#be95c4', "sadness" = '#2980B9', "surprise" = '#F4D03F', "trust" = '#1ABC9C')
+
+# all emotions count 
+all_emotions = data_with_emotions %>% filter(!is.na(emotion_type) & !(Company %in% c('Murphy USA', 'Salesforce', 'Liberty Media', 'Box', 'Pfizer', 'Block', 'Hewlett Packard Enterprise', 'PepsiCo'))) %>% summarise(sum = sum(emotion_count, na.rm=TRUE))
+all_emotions_year = data_with_emotions %>% arrange(year(Date)) %>% filter(!is.na(emotion_type) & !(Company %in% c('Murphy USA', 'Salesforce', 'Liberty Media', 'Box', 'Pfizer', 'Block', 'Hewlett Packard Enterprise', 'PepsiCo'))) %>% group_by(year = year(Date)) %>% dplyr::summarise(sum = n())
+data_with_emotions$Year = lubridate::year(data_with_emotions$Date)
+
+emotions_years_months = data_with_emotions %>% arrange(year(Date)) %>% filter(!is.na(emotion_type) & !(Company %in% c('Murphy USA', 'Salesforce', 'Liberty Media', 'Box', 'Pfizer', 'Block', 'Hewlett Packard Enterprise', 'PepsiCo'))) %>% group_by(Year, month = lubridate::month(Date, label = TRUE), emotion_type) %>% dplyr::summarise(sum = n()) %>% mutate(prop_emotion = ifelse(Year == 2017, sum/all_emotions_year[which(all_emotions_year$year == 2017),]$sum, ifelse(Year == 2018, sum/all_emotions_year[which(all_emotions_year$year == 2018),]$sum, ifelse(Year == 2019, sum/all_emotions_year[which(all_emotions_year$year == 2019),]$sum, ifelse(Year == 2020, sum/all_emotions_year[which(all_emotions_year$year == 2020),]$sum, ifelse(Year == 2021, sum/all_emotions_year[which(all_emotions_year$year == 2021),]$sum)))))) %>% ggplot() + 
+  geom_bar(mapping = aes(y = sum*100, x = month, fill = emotion_type), stat = 'identity', position="fill") +
+  facet_wrap(~ Year, scales = 'free', ncol=1) +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "") +
+  scale_fill_manual("Emotion type", values = values_cols_neg) + 
+  theme(legend.text = element_text(size=12), legend.position = 'bottom')
+ggsave('emotions_years_month.png', width = 7, height = 15)
+```
+
+# Graph of emotions shares by years 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+emotions_years = data_with_emotions %>% arrange(year(Date)) %>% filter(!is.na(emotion_type) & !(Company %in% c('Murphy USA', 'Salesforce', 'Liberty Media', 'Box', 'Pfizer', 'Block', 'Hewlett Packard Enterprise', 'PepsiCo'))) %>% group_by(year = year(Date), month = lubridate::month(Date, label = TRUE), emotion_type) %>% dplyr::summarise(sum = n()) %>% mutate(prop_emotion = (sum/all_emotions[1,1])*100) %>% ggplot() + 
+  geom_bar(mapping = aes(y = sum, x = year, fill = emotion_type), stat = 'identity', position="fill") +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Emotion share") +
+  scale_fill_manual("Emotion type", values = values_cols_neg) + 
+  theme(legend.text = element_text(size=12)) 
+ggsave('emotions_years.png', width = 10)
+```
+
+
+# Graph of the percentage of emotions occurrence
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+emotion_sum = data_with_emotions %>% filter(!is.na(emotion_type)) %>% group_by(emotion_type, Year) %>% dplyr::summarise(sum_em = sum(emotion_count, na.rm = TRUE)) %>% group_by(Year) %>% dplyr::summarise(sum_all_year = sum(sum_em))
+  
+data_with_emotions %>% filter(!is.na(emotion_type)) %>%  group_by(Year, emotion_type) %>% dplyr::summarise(count = n()) %>%
+  mutate(share = ifelse(Year == 2017, count/emotion_sum[which(emotion_sum$Year == 2017),]$sum_all_year, ifelse(Year == 2018, count/emotion_sum[which(emotion_sum$Year == 2018),]$sum_all_year, ifelse(Year == 2019, count/emotion_sum[which(emotion_sum$Year == 2019),]$sum_all_year, ifelse(Year == 2020, count/emotion_sum[which(emotion_sum$Year == 2020),]$sum_all_year, ifelse(Year == 2021, count/emotion_sum[which(emotion_sum$Year == 2021),]$sum_all_year, NA)))))) %>% ggplot() + geom_bar(aes(x = reorder(emotion_type, -share), y = share*100,  fill = as.factor(emotion_type)), stat = 'identity', position = 'dodge') + facet_wrap(~ Year, scales = 'free') +   theme_classic(base_size = 12) +
+  labs(x = "", y = "The percentage of emotions occurrence") +
+  scale_fill_manual(values = values_cols_neg) + 
+  theme(legend.position = 'none', axis.text.x = element_text(size = 10))
+ggsave('combined_types_emotion.png', width = 15, height = 8)
+```
+
+# Share of positive and negative emotions
+
+# Graph share of positive and negative emotions (bar chart)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+data_with_emotions$good_or_bad = case_when(data_with_emotions$emotion_type == 'anger' ~ 'bad', 
+          data_with_emotions$emotion_type == 'anticipation' ~ 'good', 
+          data_with_emotions$emotion_type == 'disgust' ~ 'bad', 
+          data_with_emotions$emotion_type == 'fear' ~ 'bad', 
+          data_with_emotions$emotion_type == 'sadness' ~ 'bad',
+          data_with_emotions$emotion_type == 'trust' ~ 'good', 
+          data_with_emotions$emotion_type == 'surprise' ~ 'good', 
+          data_with_emotions$emotion_type == 'joy' ~ 'good')
+
+data_with_emotions$Year = year(as.Date(data_with_emotions$Date))
+
+goodemotionshare = function(group){
+  industry_goodorbad = data_with_emotions %>% filter(!is.na(good_or_bad) & str_detect(data_with_emotions$Group, group)) %>% group_by(Year, good_or_bad, Group) %>% dplyr::summarise(count = n()) %>% group_by(Year, good_or_bad) %>% dplyr::summarise(sum = sum(count)) %>% ggplot() + geom_bar(mapping = aes(fill = good_or_bad, y = sum, x = Year), stat = 'identity', position="fill") +
+  theme_classic(base_size = 14) +
+  labs(subtitle = group, x = "", y = " ") +
+  scale_fill_manual("Emotion type", values = c('bad' = '#D35400', 'good' = '#28B463')) + theme(legend.text = element_text(size=12), axis.text.x = element_text(size = 10, hjust = 1)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 7))
+  return(industry_goodorbad)
+}
+
+consumer_good_share = goodemotionshare('Consumer')
+Retailing_good_share = goodemotionshare('Retailing')
+Financial_good_share = goodemotionshare('Financial')
+HR_good_share = goodemotionshare('HR')
+Entertainment_good_share = goodemotionshare('Entertainment')
+Technology_good_share = goodemotionshare('Technology')
+Internet_good_share = goodemotionshare('Internet Services')
+Health_good_share = goodemotionshare('Health Care')
+
+ggarrange(consumer_good_share, Retailing_good_share, Financial_good_share, Entertainment_good_share, Technology_good_share, Health_good_share, common.legend = TRUE,  legend="bottom")
+ggsave('combined_good_graph2.png', width = 11, height = 7)
+```
+
+# Graph share of positive and negative emotions (line graph)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+good_line_share = function(group){
+  good_all = data_with_emotions %>% filter(!is.na(good_or_bad) & str_detect(data_with_emotions$Group, group)) %>% group_by(Year, good_or_bad, Group) %>% dplyr::summarise(count = n()) %>% group_by(Year) %>% dplyr::summarise(sum = sum(count)) 
+  
+  industry_goodorbad = data_with_emotions %>% filter(!is.na(good_or_bad) & str_detect(data_with_emotions$Group, group)) %>% group_by(Date, good_or_bad, Group) %>% dplyr::summarise(count = n()) %>% group_by(Date, good_or_bad) %>% dplyr::summarise(sum = sum(count)) %>% filter(good_or_bad == 'good') %>% group_by(yearmon = format(Date, "%Y-%m")) %>% dplyr::summarise(count = sum(sum)) %>% mutate(Date = ym(yearmon), Year = year(Date), share = ifelse(Year == 2017, count/good_all[which(good_all$Year == 2017),]$sum*100, ifelse(Year == 2018, count/good_all[which(good_all$Year == 2018),]$sum*100, ifelse(Year == 2019, count/good_all[which(good_all$Year == 2019),]$sum*100, ifelse(Year == 2020, count/good_all[which(good_all$Year == 2020),]$sum*100, ifelse(Year == 2021, count/good_all[which(good_all$Year == 2021),]$sum*100, NA)))))) %>% ggplot(aes(y = share, x = Date)) + geom_line(color = '#28B463', size=0.7) +
+  theme_classic(base_size = 14) +
+  scale_x_date(date_breaks = "6 months", 
+               date_labels =  "%b %Y") + 
+  labs(title = group, x = "", y = "") 
+  return(industry_goodorbad)
+}
+
+consumer_good_share_line = good_line_share('Consumer')
+Retailing_good_share_line = good_line_share('Retailing')
+Financial_good_share_line = good_line_share('Financial')
+HR_good_share_line = good_line_share('HR')
+Entertainment_good_share_line = good_line_share('Entertainment')
+Technology_good_share_line = good_line_share('Technology')
+Internet_good_share_line = good_line_share('Internet Services')
+Health_good_share_line = good_line_share('Health Care')
+
+ggarrange(ncol=2, nrow=3,consumer_good_share_line, Retailing_good_share_line, Financial_good_share_line, Entertainment_good_share_line, Technology_good_share_line, Health_good_share_line)
+ggsave('combined_good_graph_line.png', width = 17, height = 10)
+```
+
+```{r}
+share_good = data_with_emotions %>% filter(!is.na(good_or_bad)) %>% group_by(Date, Company, good_or_bad) %>% dplyr::summarise(count_emotion_badgood = n()) %>% group_by(Date, Company) %>% mutate(sum_allemotion_perday = sum(count_emotion_badgood), share_good = count_emotion_badgood/sum_allemotion_perday*100) 
+data_merged_withsharegood = data_merged2 %>% left_join(share_good, by = c('Company', 'Date'))
+```
+
+# Joining Industries
+
+```{r}
+group_pricemean = function(group){
+data = data_merged_sent %>% filter(str_detect(Group, group)) %>% group_by(Polarity) %>% dplyr::summarise(Mean_Price = mean(Price), Mean_Sentiment = mean(sentiment)) %>% mutate(Industry = as.factor(group))
+return(data)
+}
+
+merged_groups = do.call("rbind", list(group_pricemean('Consumer'), group_pricemean('Technology'), group_pricemean('Internet Services'), group_pricemean('Entertainment'), group_pricemean('Health Care'), group_pricemean('Financial'), group_pricemean('Retailing'), group_pricemean('HR')))
+```
+
+# Graph Mean Sentiment by Industries over period (bar)
+
+```{r}
+groups_graph = sent_groups %>% ggplot() + geom_bar(aes(x = Group, y = Mean_Sentiment, fill = as.factor(Year)), stat = 'identity', position = 'dodge') + theme_classic(base_size = 14) +
+  labs(x = " ", y = "Mean Sentiment") +
+  scale_fill_manual('Year', values = c('#bcbddc', '#02818a', '#2b8cbe', '#fcbba1','#8c6bb1')) + theme(legend.text = element_text(size=12), axis.text.x = element_text(size = 10, hjust = 1))
+ggsave("sent_groups_graph.png", width = 13, height = 7)
+```
+
+# Graph Mean Sentiment by Industries over period with Overall Mean Sentiment (line)
+
+```{r}
+sent_bygroups = function(group){
+  group_sent = data_merged_sent %>% filter(str_detect(Group, group)) %>% group_by(Year = year(Date)) %>% dplyr::summarise(Mean_Sentiment = mean(sentiment)) %>% mutate(Group = group)
+  return(group_sent)
+}
+
+sent_groups = do.call("rbind", list(sent_bygroups('Consumer'), sent_bygroups('Technology'), sent_bygroups('Internet Services'), sent_bygroups('Entertainment'), sent_bygroups('Health Care'), sent_bygroups('Financial'), sent_bygroups('Retailing'), sent_bygroups('HR')))
+
+for_line = data_merged_sent %>% group_by(Year = year(Date)) %>% dplyr::summarise(Mean = mean(sentiment))
+
+group_graph_mean = sent_groups %>% filter(!(Group %in% c('HR', 'Internet Services'))) %>% mutate(year_mean = ifelse(Year == 2017, for_line[which(for_line$Year == 2017),]$Mean, ifelse(Year == 2018, for_line[which(for_line$Year == 2018),]$Mean, ifelse(Year == 2019, for_line[which(for_line$Year == 2019),]$Mean, ifelse(Year == 2020, for_line[which(for_line$Year == 2020),]$Mean, ifelse(Year == 2021, for_line[which(for_line$Year == 2021),]$Mean, NA)))))) %>% ggplot(aes(x = Year, y = Mean_Sentiment, color = Group)) + geom_line(size = 1.2) + geom_point(size = 1.7) + geom_line(aes(x= Year, y = year_mean), size = 1.5, color = '#bf0603') + 
+   geom_dl(aes(label = 'Overall Mean Sentiment'), color = '#bf0603', method = list(dl.trans(x = x + 4, y = y + 1), "first.points", cex = 1)) + theme_classic(base_size = 14) +
+  labs(x = " ", y = "Mean Sentiment") +
+  scale_color_manual('Industry', values = c('#bcbddc', 'steelblue', 'salmon', '#fcbba1','#8c6bb1', 'seagreen')) + theme(legend.text = element_text(size=12), axis.text.x = element_text(size = 10, hjust = 0.8))
+group_graph_mean
+ggsave("group_graph_mean.png", width = 11, height = 7)
+```
+
+# Quantity tweets
+
+# Graph quantity of Tweets between Groups by years and Overall
+
+```{r message=FALSE, warning=FALSE}
+count_bygroups = function(group){
+  consumer_count = data_merged_sent %>% filter(str_detect(Group, group)) %>% group_by(Year = year(Date)) %>% dplyr::summarise(Overall = n()) %>% mutate(Group = group)
+  return(consumer_count)
+}
+
+count_groups = do.call("rbind", list(count_bygroups('Consumer'), count_bygroups('Technology'), count_bygroups('Internet Services'), count_bygroups('Entertainment'), count_bygroups('Health Care'), count_bygroups('Financial'), count_bygroups('Retailing'), count_bygroups('HR')))
+
+count_groups_graph = count_groups %>% filter(!Group %in% c('Internet Services', 'HR')) %>% ggplot() + geom_bar(aes(x = Year, y = Overall, fill = Group), stat = 'identity') + theme_classic(base_size = 14) +
+  labs(x = " ", y = "Quantity") +
+  scale_fill_manual('Industry', values = c('#bcbddc', '#02818a', '#2b8cbe', '#fff7bc','#8c6bb1', '#969696')) + theme(legend.text = element_text(size=12), axis.text.x = element_text(size = 10, hjust = 1))
+ggsave("count_groups_graph.png", width = 10, height = 7)
+```
+
+# Variables distribution and t-tests 
+
+In case of large samples, normality is not required. By the central limit theorem, sample means of large samples are often well-approximated by a normal distribution even if the data are not normally distributed (Stevens, 2013).
+
+### Volume
+
+```{r}
+volume_ttest = data_merged_sent %>% filter(Polarity %in% c('Negative', 'Positive')) %>% select(Volume, Polarity)
+
+# wilcox test
+wilcox.test(volume_ttest$Volume ~ volume_ttest$Polarity)
+# the 2 groups are different in terms of the variable of interest
+
+# ttest for Volume
+t.test(volume_ttest$Volume ~ volume_ttest$Polarity)
+# the 2 groups are different in terms of the variable of interest
+```
+
+#### Volume mean besides Polarity groups 
+
+```{r message=FALSE, warning=FALSE}
+# mean Volume besides tonality categories
+data_merged_sent %>% group_by(Polarity) %>% dplyr::summarise(Mean = mean(Volume))
+
+# boxplot without Neutral Sentiment
+data_merged_sent %>% filter(Polarity %in% c('Negative', 'Positive')) %>% ggplot() + geom_boxplot(aes(y = log(Volume), x = Polarity), fill = 'cadetblue', color = 'darkslategray') +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Logarithm Volume of Shares") +
+  scale_y_continuous(limits = quantile(log(data_merged_sent$Volume), c(0.1, 0.9)))
+
+# bar chars
+volume_graph_sent = data_merged_sent %>% filter(Polarity %in% c('Negative', 'Positive')) %>% group_by(Polarity) %>% dplyr::summarise(mean=mean(Volume)) %>% ggplot() + geom_bar(aes(x = reorder(Polarity, -mean), y = mean/1000000), stat = 'identity', position = 'dodge', fill = 'steelblue', color = 'darkslategray') +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Mean Volume (mln. $)") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7)) 
+ggsave("volume_graph_sent.png", width = 9, height = 6)
+```
+
+### Price
+
+```{r}
+price_ttest = data_merged_sent %>% filter(Polarity %in% c('Negative', 'Positive')) %>% select(Price, Polarity)
+
+# wilcox test
+wilcox.test(price_ttest$Price ~ price_ttest$Polarity)
+# the 2 groups are different in terms of the variable of interest
+ 
+# ttest for Price
+t.test(price_ttest$Price ~ price_ttest$Polarity)
+# the 2 groups are different in terms of the variable of interest
+```
+
+### Price mean beside Polarity groups 
+
+```{r message=FALSE, warning=FALSE}
+# mean Price besides tonality categories
+data_merged_sent %>% group_by(Polarity) %>% dplyr::summarise(Mean = mean(Price))
+
+# bar chart
+price_graph_sent = data_merged %>% filter(Polarity %in% c('Negative', 'Positive')) %>%  group_by(Polarity) %>% dplyr::summarise(mean=mean(Price)) %>% ggplot() + geom_bar(aes(x = reorder(Polarity, -mean), y = mean), stat = 'identity', position = 'dodge', fill = 'cadetblue', color = 'darkslategray') +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Mean Price") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))
+ggsave("price_graph_sent.png", width = 9, height = 6)
+```
+
+### Sentiment 
+
+# Graph mean sentiment by years
+
+```{r}
+data_merged_sent %>% group_by(Year = year(Date)) %>% dplyr::summarise(Mean = mean(sentiment)) %>% ggplot() + geom_bar(aes(x = Year, y = Mean), stat = 'identity', position = 'dodge', fill = 'cadetblue', color = 'darkslategray') +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Mean Sentiment") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))
+ggsave("meansent_graph.png", width = 9, height = 6)
+```
+
+# Graph sentiment share by years overall
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+data_merged_sent %>% group_by(year = year(Date), Polarity) %>% dplyr::summarise(count = n()) %>% ggplot() + geom_bar(aes(x = year, y = count, fill = Polarity), stat = 'identity', position = 'fill') +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Sentiment share") +
+  scale_fill_manual("Sentiment",  values = c('Negative' = '#D35400', 'Positive' = '#28B463', 'Neutral' = '#F39C12')) + theme(legend.text = element_text(size=12), axis.text.x = element_text(size = 10, hjust = 1))
+ggsave("sent_share_graph.png", width = 9, height = 6)
+```
+
+# Graph Sentiment mood by Price years overall
+
+```{r}
+data_merged %>% group_by(Year = year(Date), Polarity) %>% dplyr::summarise(mean = round(mean(Price), 2)) %>%  ggplot() + geom_bar(aes(x = Year, y = mean, fill = Polarity), stat = 'identity', position = 'dodge') +
+  theme_classic(base_size = 14) +
+  labs(x = " ", y = "Price") +
+  scale_fill_manual("Sentiment",  values = c('Negative' = '#D35400', 'Positive' = '#28B463', 'Neutral' = '#F39C12')) + theme(legend.text = element_text(size=12), axis.text.x = element_text(size = 10, hjust = 1))
+```
+
+Latex Tables for mean Price, Volume, and Emotion with Sentiment
+
+```{r}
+xtable(data_merged_sent %>% filter(Polarity %in% c('Negative', 'Positive')) %>% group_by(Polarity) %>% dplyr::summarise('Mean Volume'=round(mean(Volume, na.rm = TRUE)), 'Mean Price' = round(mean(Price, na.rm = TRUE), 2)), auto = TRUE)
+
+xtable(data_with_emotions %>% group_by(Year) %>% dplyr::summarise('Mean Emotion'= round(mean(emotion, na.rm = TRUE), 3),'Maximum Emotion'= round(max(emotion, na.rm = TRUE), 3), 'Minimum Minimum'= round(min(emotion, na.rm = TRUE), 3)), auto = TRUE)
+```
+
+### Adding variables Sentiment Growth, Quantity tweets (Positive/ Negative/Neutral/All), Quantity tweets Growth
+
+```{r}
+# overwrite dataset 
+data_merged2 = data_merged_sent
+
+# Sentiment_Growth
+data_merged2$Sentiment_Growth = with(data_merged2, ave(sentiment, Company, FUN=function(x) c(NA, diff(x)/x[-length(x)])))
+
+# Quantity tweets
+quant_tweets = data_merged2 %>% group_by(Date, Company) %>% dplyr::summarise(quantity_tweets = n()) 
+data_merged2 = data_merged2 %>% left_join(quant_tweets, by = c('Company', 'Date'))
+data_posneg = data_merged2 %>% group_by(Date, Company, Polarity) %>% dplyr::summarise(count = n()) 
+
+# Positive Quantity
+data_posneg$pos_quantity = ifelse(data_posneg$Polarity == 'Positive', data_posneg$count, 0)
+
+# Negative Quantity
+data_posneg$neg_quantity = ifelse(data_posneg$Polarity == 'Negative', data_posneg$count, 0)
+
+# Neutral Quantity
+data_posneg$neut_quantity = ifelse(data_posneg$Polarity == 'Neutral', data_posneg$count, 0)   
+data_posneg = data_posneg %>% select(-count)
+
+data_merged2 = data_merged2 %>% left_join(data_posneg, by = c("Company", "Date", "Polarity"))
+
+# Sentiment variable = Positive Quantity - Negative Quantity
+data_merged2$sentim_quant = data_merged2$pos_quantity - data_merged2$neg_quantity
+
+# Quantity Growth
+data_merged2$Quantity_Growth = with(data_merged2, ave(quantity_tweets, Company, FUN=function(x) c(NA, diff(x)/x[-length(x)])))
+```
+
+# Correlation 
+
+```{r}
+# correlation for potential regressors in model
+data_cor = data_merged2 %>% ungroup() %>% select(Price, sentiment, Volume, Market_cap, quantity_tweets) %>% as.matrix() %>% cor(use = "pairwise.complete.obs", method = "pearson") %>% data.frame()
+data_cor = round(data_cor, 2)
+names = c('Stock Price', 'Sentiment', "Volume", 'Market Cap', 'Tweets Quantity')
+colnames(data_cor) = names
+rownames(data_cor) = names
+upper = data_cor
+upper[upper.tri(data_cor, diag = TRUE)] = ""
+upper = as.data.frame(upper)
+print(xtable(upper), type="html", file = "correlation.csv")
+```
+
+# Regressions
+
+```{r}
+# functions for model quality assesment 
+RMSE = function(error){sqrt(mean(error^2))}
+MAE = function(error){mean(abs(error))}
+RSS = function(model){sum(resid(model)^2)}
+
+# function for QQ-plot graphs
+ggQQ = function(lm){
+  d = data.frame(std.resid = rstandard(lm))
+  y = quantile(d$std.resid[!is.na(d$std.resid)], c(0.25, 0.75))
+  x = qnorm(c(0.25, 0.75))
+  slope = diff(y)/diff(x)
+  int = y[1L] - slope * x[1L]
+  
+  p = ggplot(data = d, aes(sample = std.resid)) +
+    stat_qq(shape = 1, size = 3) +         
+    labs(title = "Normal Q-Q",            
+         x = "Theoretical Quantiles",    
+         y = "Standardized Residuals") +   
+    geom_abline(slope = slope, intercept = int, linetype = "dashed",
+                size = 1, col = "firebrick1") + theme_classic() 
+  return(p)
+}
+```
+
+### Hypothesis 1a
+
+Tweets has a significant positive impact on the daily trading volume.
+Literature: Frank and Antweiler (2004)
+
+Expected:
+Significant positive values of the beta coefficient in front of the number of tweets variable.
+
+Equation: log(Volume) ~ quantity_tweets
+
+## Stationarity and Normality check 
+
+```{r}
+## Volume Distribution - not normal
+
+hist(log(data_merged2$Volume))
+ad.test(log(data_merged2$Volume))$p.value
+# the Anderson-Darling test has a similar problem with the Shapiro Wilk test: for large samples, it is most likely to reject the null hypothesis 
+ks.test(log(data_merged2$Volume), 'pnorm')
+# the p-value of the second test is less than 0.05, which indicates that the data is not normally distributed
+
+## Stationarity - stationary 
+adf.test(log(data_merged2$Volume)) # stationary, null (non-stat) reject
+kpss.test(log(data_merged2$Volume), null="Trend") # is not trend stationary, null (trend stationarity) reject
+
+## Tweets Quantity Distribution - not normal
+
+hist(data_merged2$quantity_tweets)
+
+ad.test(data_merged2$quantity_tweets)$p.value
+ks.test(data_merged2$quantity_tweets, 'pnorm')
+
+## Stationarity - stationary 
+adf.test(data_merged2$quantity_tweets) # stationary, null (non-stat) reject
+kpss.test(data_merged2$quantity_tweets, null="Trend") # is not trend stationary, null (trend stationarity) reject
+```
+
+### Model OLS LR
+
+```{r}
+model11 = lm(log(Volume) ~ quantity_tweets, data = data_merged2)
+summary(model11) 
+
+data.frame(residuals(model11)) %>% ggplot() + geom_histogram(aes(x = residuals.model11.))
+
+ggplot(data = data.table(Fitted_values = model11$fitted.values,
+                         Residuals = model11$residuals),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+# there are obvious signs of heteroskedasticity
+
+# cluster robust standard errors - heteroskedasticity consistent coefficients
+tbl = tidy(coeftest(model11, vcov = vcovHC(model11, type = "HC0", cluster = "group")))
+
+ggQQ(model11)
+ggsave('ggQQhyp11.png', width = 6, height = 5)
+```
+
+Results:
+(-) Significant negative estimate of the beta coefficient.
+
+### Hypothesis 1b
+Tweets has a significant positive impact on the daily trading volume between industries.
+
+Expected:
+Significant positive values of the beta coefficient in front of the number of tweets variable between industries.
+
+Use interactions to get rid of the heteroscedasticity.
+
+### Model OLS MLR
+
+```{r}
+data_model12 = data_merged2 %>% separate_rows(Group, sep = ',')
+data_model12$Group = gsub("[[:blank:]]", "", data_model12$Group)
+
+model12 = lm(log(Volume) ~ quantity_tweets + quantity_tweets:Group, data = data_model12) 
+summary(model12) 
+Anova(model12, type=c("III")) # interaction and factors are significant 
+data.frame(residuals(model12)) %>% ggplot() + geom_histogram(aes(x = residuals.model12.))
+
+ggplot(data = data.table(Fitted_values = model12$fitted.values,
+                         Residuals = model12$residuals),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+
+# cluster robust standard errors
+tbl2 = tidy(coeftest(model12, vcov = vcovHC(model12, type = "HC0", cluster = "group")))
+
+ggQQ(model12)
+ggsave('ggQQhyp12.png', width = 6, height = 5)
+```
+
+Results:
+(+/-) Mixed significant positive and negative estimate of the beta coefficient.
+
+Comparison of model11 and model12
+
+```{r}
+ggplot(data.table(Residuals = c(model11$residuals, model12$residuals),
+                  Type = c(rep("LR simple", nrow(data_model12)),
+                           rep("LR with interactions", nrow(data_model12)))), 
+       aes(Type, Residuals, fill = Type)) +
+  geom_boxplot() + theme_classic()
+ggsave('hyp1resid.png', width = 7, height = 5)
+
+xtable(linearHypothesis(model12, c("quantity_tweets:Group1", "quantity_tweets:Group2", "quantity_tweets:Group3", "quantity_tweets:Group4", "quantity_tweets:Group5", "quantity_tweets:Group6", "quantity_tweets:Group7"),  vcov = vcovHC(model12, type = "HC0", cluster = "group"))) # reject null hypothesis -> factors are significant -> long regression model
+# the linear constraint test which is consistent with heteroscedasticity
+waldtest(model11, model12, vcov = vcovHC(model12)) # reject null hypothesis -> factors are significant -> long regression model
+```
+
+### Model GLS
+
+Use GLS to get rid of the heteroscedasticity.
+
+```{r}
+# combine structure of variance 
+model13 = nlme::gls(log(Volume) ~ quantity_tweets + quantity_tweets:Group, data = data_model12, weights=varComb(varIdent(form = ~1| Group),
+varExp(form = ~ quantity_tweets)), na.action=na.exclude) 
+
+summary(model13) 
+Anova(model13, type=c("III")) # interaction and factors are significant
+data.frame(residuals(model13)) %>% ggplot() + geom_histogram(aes(x = residuals.model13.))
+
+qplot(x = fitted(model13), y = residuals(model13, type = "pearson"))
+
+ggplot(data = data.table(Fitted_values = fitted(model13),
+                         Residuals = residuals(model13)),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+```
+
+Results:
+(+/-) Mixed significant positive and negative estimate of the beta coefficient.
+
+Comparison of the models 
+
+```{r}
+RSS(model11) 
+RMSE(model11$residuals) 
+MAE(model11$residuals) 
+
+RSS(model12) 
+RMSE(model12$residuals) 
+MAE(model12$residuals) 
+
+RSS_gls = sum((model13$residuals)^2)
+RMSE(model13$residuals) 
+MAE(model13$residuals)
+
+AIC(model11) 
+AIC(model12) 
+AIC(model13) 
+
+BIC(model11) 
+BIC(model12) 
+BIC(model13) 
+```
+
+Transfer results in Latex tables 
+
+```{r}
+texreg(list(coeftest(model11, vcov = vcovHC(model11, type = "HC0", cluster = "group")), coeftest(model12, vcov = vcovHC(model12, type = "HC0", cluster = "group")), model13), caption="", scriptsize=TRUE,
+model.names=c('OLS (rest.)', 'OLS (unrest.)', 'GLS (REML)'), strong.signif=TRUE, use.packages=FALSE)
+```
+
+### Hypothesis 2a
+
+Tweets with negative tonality have a stronger effect on trading volume than tweets with positive tonality
+
+Expected:
+Significant negative values of the beta coefficient in front of the number of negative tweets variable.
+
+Equation1: log(Volume) ~ pos_quantity + neg_quantity
+
+### OLS MLR (Volume)
+
+```{r}
+model21 = lm(log(Volume) ~ pos_quantity + neg_quantity, data = data_merged2) 
+coef(model21)
+summary(model21)  
+Anova(model21, type=c("III")) # interaction and factors are significant
+data.frame(residuals(model21)) %>% ggplot() + geom_histogram(aes(x = residuals.model21.))
+
+qplot(x = fitted(model21), y = residuals(model21, type = "pearson"))
+
+ggplot(data = data.table(Fitted_values = fitted(model21),
+                         Residuals = residuals(model21)),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+
+ggQQ(model21) 
+ggsave('hyp21resid.png', width = 6, height = 5)
+
+bptest(log(Volume) ~ pos_quantity + neg_quantity, data = data_merged2, studentize = F) 
+```
+
+Results:
+(+) Significant negative estimate of the beta coefficient is higher.
+
+### OLS MLR + Group (Volume)
+
+```{r}
+model22 = lm(log(Volume) ~ pos_quantity + neg_quantity + pos_quantity:Group + neg_quantity:Group, data = data_model12)
+coef_mlr_group = data.frame(coef(model22))
+summary(model22) 
+
+Anova(model22, type=c("III")) # interaction and factors are significant
+linearHypothesis(model22, c("pos_quantity:GroupEntertainment", "pos_quantity:GroupFinancial", "pos_quantity:GroupHealthCare", "pos_quantity:GroupHR", "pos_quantity:GroupInternetServices", "pos_quantity:GroupRetailing", "pos_quantity:GroupTechnology", "neg_quantity:GroupEntertainment", "neg_quantity:GroupFinancial", "neg_quantity:GroupHealthCare", "neg_quantity:GroupHR", "neg_quantity:GroupInternetServices", "neg_quantity:GroupRetailing", "neg_quantity:GroupTechnology"),  vcov = vcovHC(model22, type = "HC0", cluster = "group"))
+# the linear constraint test which is consistent with heteroscedasticity
+waldtest(model21, model22, vcov = vcovHC(model22)) # reject null hypothesis -> factors are significant -> long regression model
+
+data.frame(residuals(model22)) %>% ggplot() + geom_histogram(aes(x = residuals.model22.))
+
+qplot(x = fitted(model22), y = residuals(model22, type = "pearson"))
+
+ggplot(data = data.table(Fitted_values = fitted(model22),
+                         Residuals = residuals(model22)),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+```
+
+Results:
+(+) Significant negative estimate of the beta coefficient is higher.
+
+Comparison of model11 and model12
+
+```{r}
+ggplot(data.table(Residuals = c(model21$residuals, model22$residuals),
+                  Type = c(rep("LR simple", nrow(data_model12)),
+                           rep("LR with interactions", nrow(data_model12)))), 
+       aes(Type, Residuals, fill = Type)) +
+  geom_boxplot() + theme_classic()
+ggsave('hyp2resid.png', width = 7, height = 5)
+```
+
+### GLS Method + Group (Volume)
+
+```{r}
+# combine structure of variance 
+model23 = nlme::gls(log(Volume) ~ pos_quantity + neg_quantity + pos_quantity:Group + neg_quantity:Group, data = data_model12, weights=varComb(varIdent(form = ~1| Group),
+varExp(form = ~ quantity_tweets)), na.action=na.exclude) 
+coef_gls_group = data.frame(coef(model23))
+
+summary(model23) 
+Anova(model23, type=c("III")) # interaction and factors are significant
+data.frame(residuals(model23)) %>% ggplot() + geom_histogram(aes(x = residuals.model23.))
+
+qplot(x = fitted(model23), y = residuals(model23, type = "pearson"))
+
+ggplot(data = data.table(Fitted_values = fitted(model23),
+                         Residuals = residuals(model23)),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+```
+
+Results:
+(+) Significant negative estimate of the beta coefficient is higher.
+
+Comparison of the models 
+
+```{r}
+RSS(model21)
+RMSE(model21$residuals) 
+MAE(model21$residuals) 
+
+RSS(model22) 
+RMSE(model22$residuals) 
+MAE(model22$residuals) 
+
+RSS_gls = sum((model23$residuals)^2) 
+RMSE(model23$residuals) 
+MAE(model23$residuals) 
+
+AIC(model21) 
+AIC(model22) 
+AIC(model23) 
+
+BIC(model21) 
+BIC(model22) 
+BIC(model23) 
+```
+
+Additionally check differences with correlation test of Pearson
+
+```{r}
+hyp2 = data_merged2 %>% select(Volume, pos_quantity, neg_quantity)
+hyp2$Volume_ln = log(hyp2$Volume)
+cor(hyp2)
+
+cor.test(hyp2$Volume_ln, hyp2$pos_quantity) # 0.0000
+cor.test(hyp2$Volume_ln, hyp2$neg_quantity) # 0.0000
+
+# correlation tests for whole dataset
+results = rcorr(as.matrix(hyp2)) 
+# display p-values 
+round(results$P, 3)
+# correlations with p-values smaller than the significance level (< 0.05) are statistically significant and should be interpreted
+```
+
+### Hypothesis 2b
+
+Tweets with negative tonality have a stronger effect on price daily return than tweets with positive tonality
+
+Expected:
+Significant negative values of the beta coefficient in front of the number of negative tweets variable.
+
+Equation2: Daily_Return ~ pos_quantity + neg_quantity + Mrkt_prem + Tbill90
+
+### OLS MLR (Daily Return)
+
+```{r}
+model24 = lm(Daily_Return ~ pos_quantity + neg_quantity + Mrkt_prem + Tbill90, data = data_merged2) 
+coef(model24)
+summary(model24)  
+Anova(model24, type=c("III")) # neg_quantity is not significant
+data.frame(residuals(model24)) %>% ggplot() + geom_histogram(aes(x = residuals.model24.))
+
+coeftest(model24, vcov = vcovHC(model24, type = "HC0", cluster = "group"))
+
+qplot(x = fitted(model24), y = residuals(model24, type = "pearson"))
+
+ggplot(data = data.table(Fitted_values = fitted(model24),
+                         Residuals = residuals(model24)),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()
+
+ggQQ(model24)
+```
+
+### GLS Method (Daily Return)
+
+```{r}
+# combine structure of variance 
+model25 = nlme::gls(Daily_Return ~ pos_quantity + neg_quantity + Mrkt_prem + Tbill90, data = data_merged2, weights=varExp(form = ~ pos_quantity), na.action=na.exclude) 
+coef_gls_group = data.frame(coef(model25))
+
+summary(model25) 
+Anova(model25, type=c("III")) # interaction and factors are significant
+data.frame(residuals(model25)) %>% ggplot() + geom_histogram(aes(x = residuals.model25.))
+
+qplot(x = fitted(model25), y = residuals(model25, type = "pearson"))
+
+ggplot(data = data.table(Fitted_values = fitted(model25),
+                         Residuals = residuals(model25)),
+       aes(Fitted_values, Residuals)) + 
+  geom_point(size = 1.7) + geom_smooth() +
+  geom_hline(yintercept = 0, color = "red", size = 1) +
+  labs(title = "Fitted values vs Residuals") + theme_classic()	
+```
+
+Transfer results in Latex tables 
+
+```{r}
+texreg(list(coeftest(model21, vcov = vcovHC(model21, type = "HC0", cluster = "group")), coeftest(model22, vcov = vcovHC(model22, type = "HC0", cluster = "group")), model23, coeftest(model24, vcov = vcovHC(model24, type = "HC0", cluster = "group")), model25), caption="", scriptsize=TRUE,
+model.names=c('OLS', 'OLS', 'GLS', 'OLS', 'GLS'), strong.signif=TRUE, use.packages=FALSE)
+```
+
+### Hypothesis 3
+
+Tweets tonality, share of good emotions and tweets quantity has a significant effect on stock prices daily return.
+
+Expected:
+(+) Tweets tonality, (+) share of good emotions and (+) tweets quantity has a significant effect on stock prices daily return.
+
+Equation: Daily Return = RF + (Rm - RF) + CMA + RMW + HML + SMB + sentiment + share_good + quantity_tweets
+where, (Rm - RF) - is market premium
+
+Panel Data, Fixed and Random Effects
+
+## Stationarity and Normality check 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+## Daily Return  - not normal
+
+hist(data_merged2$Daily_Return)
+ad.test(data_merged2$Daily_Return)$p.value
+ks.test(data_merged2$Daily_Return, 'pnorm')
+# the p-value of the second test is less than 0.05, which indicates that the data is not normally distributed
+
+## Stationarity - stationary 
+
+data_merged3 = data_merged2 %>% filter(!is.na(Daily_Return))
+data_merged2 %>% ggplot() + geom_line(aes(x = Date, y = Daily_Return))
+
+adf.test(data_merged3$Daily_Return) # stationary, null (non-stat) reject
+kpss.test(data_merged3$Price, null="Trend") # is not trend stationary, null (trend stationarity) reject
+```
+
+Add Risk Market Premium using Risk-Free rate
+
+```{r}
+data_merged2$Mrkt_prem2 = data_merged2$S_P_ret - data_merged2$RF
+```
+
+### Fixed-Effects by companies
+
+```{r}
+modelfixed31 = plm(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + quantity_tweets + sentiment + share_good, data = data_merged_withsharegood, model = "within", effect = 'individual', index = 'Stock') 
+summary(modelfixed31)
+check_autocorrelation(modelfixed31)
+
+coeftest(modelfixed31, vcov = vcovHC(modelfixed31, type = "HC0", cluster = "group")) 
+
+# Newey & West heteroscedasticity and autocorrelation consistent (HAC) covariance matrix estimators
+NW_VCOV = NeweyWest(lm(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + quantity_tweets + sentiment + share_good, data = data_merged_withsharegood), 
+              lag = 4, prewhite = F, 
+              adjust = T)
+coeftest(modelfixed31, vcov = NW_VCOV) 
+
+linearHypothesis(modelfixed31, c("share_good", "quantity_tweets ", 'sentiment'), vcov = vcovHC(modelfixed31, type = "HC0", cluster = "group")) # regressors are significant
+```
+
+### First-Difference with lag by companies
+
+```{r}
+modelfixed32 = plm(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + lag(quantity_tweets, 1) + lag(sentiment, 1) + lag(share_good, 1), data = data_merged_withsharegood, model = "within", effect = 'individual', index = 'Stock') 
+summary(modelfixed32)
+
+coeftest(modelfixed32, vcov = vcovHC(modelfixed32, type = "HC0", cluster = "group")) 
+
+linearHypothesis(modelfixed32, c("lag(share_good, 1)", "lag(quantity_tweets, 1)", 'lag(sentiment, 1)'), vcov = vcovHC(modelfixed32, type = "HC0", cluster = "group")) # regressors are significant
+```
+
+### Autocorrelation and heteroscedasticity tests
+
+```{r}
+pbgtest(modelfixed31)
+pbgtest(modelfixed32)
+
+bptest(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + quantity_tweets + sentiment + share_good, data = data_merged_withsharegood, studentize = F) # the hypothesis of homoscedasticity is rejected
+bptest(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + lag(quantity_tweets, 1) + lag(sentiment, 1) + lag(share_good, 1), data = data_merged_withsharegood, studentize = F) # the hypothesis of homoscedasticity is rejected
+
+# correlation of error and regressors - no
+data_merged_withsharegood$residuals_fixed = ifelse(!is.na(data_merged_withsharegood$Daily_Return), modelfixed31$residuals, NA)
+cor(data_merged_withsharegood$residuals_fixed, data_merged_withsharegood$Daily_Return, use = 'pairwise.complete.obs')
+
+data_merged_withsharegood$residuals_fixed2 = ifelse(!is.na(data_merged_withsharegood$Daily_Return), modelfixed32$residuals, NA)
+cor(data_merged_withsharegood$residuals_fixed2, data_merged_withsharegood$Daily_Return, use = 'pairwise.complete.obs')
+```
+
+# Graph Fixed companies effects
+
+```{r message=FALSE, warning=FALSE}
+data_fixed = data.frame(tidy(fixef(modelfixed32, effect = 'individual')))
+
+fixed_companies_graph = data_fixed %>% ggplot() +
+  geom_bar(aes(x = as.factor(names), y = x), stat = 'identity', fill = '#A9CCE3', col = '#2980B9') +
+  labs(x = '',
+       y = 'Fixed company effects') +
+  theme_classic(base_size = 14) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 15))
+fixed_companies_graph
+ggsave('fixed_companies_graph.png', width = 16, height = 10)
+```
+
+### Fixed-Effects by industries
+
+```{r}
+data_merged_withsharegood = data_merged_withsharegood %>% separate_rows(Group, sep = ',')
+data_merged_withsharegood$Group = gsub("[[:blank:]]", "", data_merged_withsharegood$Group)
+
+modelfixed33 = plm(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + quantity_tweets + sentiment + share_good, data = data_merged_withsharegood, model = "within", effect = 'individual', index = 'Group') 
+summary(modelfixed33)
+
+coeftest(modelfixed33, vcov = vcovHC(modelfixed33, type = "HC0", cluster = "group"))
+
+NW_VCOV = NeweyWest(lm(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + quantity_tweets + sentiment + share_good, data = data_merged_withsharegood), 
+              lag = 4, prewhite = F, 
+              adjust = T)
+coeftest(modelfixed33, vcov = NW_VCOV)
+
+linearHypothesis(modelfixed33, c("share_good", "quantity_tweets ", 'sentiment'), vcov = vcovHC(modelfixed33, type = "HC0", cluster = "group")) # regressors are significant
+```
+
+### First-Difference with lag by industries
+
+```{r}
+modelfixed34 = plm(Daily_Return ~ RF + Mrkt_prem2 + HML + CMA + RMW + SMB + lag(quantity_tweets, 1) + lag(sentiment, 1) + lag(share_good, 1), data = data_merged_withsharegood, model = "within", effect = 'individual', index = 'Group') 
+summary(modelfixed34)
+
+coeftest(modelfixed34, vcov = vcovHC(modelfixed34, type = "HC0", cluster = "group")) 
+
+linearHypothesis(modelfixed34, c("lag(share_good, 1)", "lag(quantity_tweets, 1)", 'lag(sentiment, 1)'), vcov = vcovHC(modelfixed34, type = "HC0", cluster = "group")) # significant
+```
+
+
+```{r}
+# model quality
+RSS(modelfixed31) 
+RMSE(modelfixed31$residuals)
+MAE(modelfixed31$residuals) 
+
+RSS(modelfixed32) 
+RMSE(modelfixed32$residuals) 
+MAE(modelfixed32$residuals)
+
+RSS(modelfixed33) 
+RMSE(modelfixed33$residuals) 
+MAE(modelfixed33$residuals) 
+
+RSS(modelfixed34) 
+RMSE(modelfixed34$residuals)
+MAE(modelfixed34$residuals) 
+
+AIC(modelfixed31) 
+AIC(modelfixed32)  
+AIC(modelfixed33)  
+AIC(modelfixed34)  
+
+BIC(modelfixed31) 
+BIC(modelfixed32) 
+BIC(modelfixed33) 
+BIC(modelfixed34) 
+```
+
+# Graph Fixed industries effects
+
+```{r message=FALSE, warning=FALSE}
+data_fixed3 = data.frame(tidy(fixef(modelfixed33, effect = 'individual')))
+
+fixed_companies_graph3 = data_fixed3 %>% ggplot() +
+  geom_bar(aes(x = as.factor(names), y = x), stat = 'identity', fill = '#A9CCE3', col = '#2980B9') +
+  labs(x = '',
+       y = 'Fixed industry effects') +
+  theme_classic(base_size = 14) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 15))
+fixed_companies_graph3
+ggsave('fixed_industry_graph.png',width = 16, height = 10)
+```
+
+### Random Effects
+
+```{r message=FALSE, warning=FALSE}
+modelrandom35 = plm(Daily_Return ~ RF + Mrkt_prem + HML + CMA + RMW + SMB + quantity_tweets + sentiment + share_good, data = data_merged_withsharegood, model = 'random') 
+summary(modelrandom35)
+punbalancedness(modelrandom35)
+
+coeftest(modelrandom35, vcov = vcovHC(modelrandom35, type = "HC0",  cluster = "group"))
+
+RSS(modelrandom35) 
+RMSE(modelrandom35$residuals) 
+MAE(modelrandom35$residuals) 
+
+phtest(modelfixed31, modelrandom35) 
+```
+
+Transfering results in latex
+
+```{r message=FALSE, warning=FALSE}
+stargazer(coeftest(modelfixed31, vcov = NW_VCOV), modelfixed32, coeftest(modelfixed32, vcov = vcovHC(modelfixed32, type = "HC0", cluster = "group")), coeftest(modelfixed33, vcov = NW_VCOV), modelfixed34, coeftest(modelfixed34, vcov = vcovHC(modelfixed34, type = "HC0", cluster = "group")),
+          title="Results of fixed-effect models for hypothesis 3",
+          label="tab:reg_emotion_fixed", 
+          dep.var.labels='Daily Return', 
+          align=TRUE, no.space=TRUE, 
+          column.sep.width = "-10pt", 
+          df = FALSE,
+          column.labels=c("F.E. (Company)", "F.E. (Company)", "F.E. (Company, robust)", "F.E. (Group)", "F.E. (Group)", "F.E. (Group, robust)"))
+```
